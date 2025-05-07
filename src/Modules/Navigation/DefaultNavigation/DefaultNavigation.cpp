@@ -111,8 +111,8 @@ Navigation::Output DefaultNavigation::operator()(const Motion::GoToPoint& goToPo
   Point start = robot->position();
   Point ball = goToPoint.target();
   // Point ball = frame->ball().position();
-  double grid = 100;
-  double min_distance = 80;
+  double grid = 50;
+  double min_distance = Robot::halfAxis() * 3;
 
   std::vector<Point> obstacles;
   for (const auto& enemy : frame->enemies()) {
@@ -122,7 +122,8 @@ Navigation::Output DefaultNavigation::operator()(const Motion::GoToPoint& goToPo
   std::vector<Point> path = aStar(start, ball, grid, obstacles, min_distance);
   // algoritmo dougler peuker
   double tolereance = 50;
-  path = Douglas_Peucker(path, tolereance);
+  path = douglas_Peucker(path, tolereance);
+
   if (path.empty()) {
     return pid(goToPoint.target());
   }
@@ -163,7 +164,7 @@ std::vector<Point> DefaultNavigation::neighbors(const Point& node,
                                    Point(-1, 1)};
   for (const auto& direction : directions) {
     Point neighbor = node + direction * grid;
-    if (neighbor.x() < 0 || neighbor.x() > 1500 || neighbor.y() < 0 || neighbor.y() > 1200) { // mm
+    if (neighbor.x() > 750 || neighbor.x() < -750 || neighbor.y() > 650 || neighbor.y() < -650) { //
       continue;
     }
     bool valid = true;
@@ -206,12 +207,19 @@ std::vector<Point> DefaultNavigation::aStar(const Point& start,
 
     if (current.distTo(destination) < std::max(grid, min_distance * 0.5)) {
       std::vector<Point> path;
+      qDebug() << "Path found";
       while (came_from.find(current) != came_from.end()) {
         path.push_back(current);
         current = came_from[current];
       }
       path.push_back(start);
       std::reverse(path.begin(), path.end());
+
+      targetKey.draw([path](GameVisualizerPainter2D* f) {
+        for (int i = 0; i < path.size() - 1; i++)
+          f->drawFilledCircle(path[i], 10, Qt::magenta);
+      });
+
       return path;
     }
 
@@ -225,25 +233,27 @@ std::vector<Point> DefaultNavigation::aStar(const Point& start,
       }
     }
   }
+  qDebug() << "No path found";
   return {};
 }
 
-
-std::vector<Point> DefaultPlanning::Douglas_Peucker(std::vector<Point> path, double epsilon) {
+std::vector<Point> DefaultNavigation::douglas_Peucker(std::vector<Point> path, double epsilon) {
   std::vector<Point> result;
   double dmax = 0;
   int index = 0;
-  int end = path.size() - 1; //narrowing conversion
+  int end = path.size() - 1; // narrowing conversion
   for (int i = 1; i < end; i++) {
-    double d = Geometry2D::distancePointLine(path[0], path[end], path[i]); 
+    double d = Geometry2D::distancePointLine(path[0], path[end], path[i]);
     if (d > dmax) {
       index = i;
       dmax = d;
     }
   }
   if (dmax > epsilon) {
-    std::vector<Point> rec1 = Douglas_Peucker(std::vector<Point>(path.begin(), path.begin() + index), epsilon);
-    std::vector<Point> rec2 = Douglas_Peucker(std::vector<Point>(path.begin() + index, path.end()), epsilon);
+    std::vector<Point> rec1 =
+        douglas_Peucker(std::vector<Point>(path.begin(), path.begin() + index), epsilon);
+    std::vector<Point> rec2 =
+        douglas_Peucker(std::vector<Point>(path.begin() + index, path.end()), epsilon);
     result.insert(result.end(), rec1.begin(), rec1.end() - 1);
     result.insert(result.end(), rec2.begin(), rec2.end());
   } else {
@@ -251,9 +261,7 @@ std::vector<Point> DefaultPlanning::Douglas_Peucker(std::vector<Point> path, dou
     result.push_back(path[end]);
   }
   return result;
-
 }
-
 
 void DefaultNavigation::receivePlanning(const Planning::Output& planning) {
   shared->planning = planning;
